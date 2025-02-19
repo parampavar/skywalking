@@ -13,21 +13,37 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
 
-package org.apache.skywalking.oap.server.ai.pipeline.services.api;
+package org.apache.skywalking.e2e;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
-@RequiredArgsConstructor
-@Getter
-public class HttpUriPattern {
+public enum DownSampling {
     /**
-     * Quick match URI pattern. {var} represents a variable part in the URI.
-     *
-     * /product/{var} is the pattern for /product/1, /product/2
+     * None downsampling is for un-time-series data.
      */
-    private final String pattern;
+    None(0, ""),
+    /**
+     * Second downsampling is not for metrics, but for record, profile and top n. Those are details but don't do
+     * aggregation, and still merge into day level in the persistence.
+     */
+    Second(1, "second"),
+    Minute(2, "minute"),
+    Hour(3, "hour"),
+    Day(4, "day");
+
+    private final int value;
+    private final String name;
+
+    DownSampling(int value, String name) {
+        this.value = value;
+        this.name = name;
+    }
+
+    public int getValue() {
+        return value;
+    }
+
+    public String getName() {
+        return name;
+    }
 }

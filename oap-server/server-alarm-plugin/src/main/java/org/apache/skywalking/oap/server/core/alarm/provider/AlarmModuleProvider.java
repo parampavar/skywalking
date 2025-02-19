@@ -20,6 +20,7 @@ package org.apache.skywalking.oap.server.core.alarm.provider;
 
 import java.io.FileNotFoundException;
 import java.io.Reader;
+import lombok.Getter;
 import org.apache.skywalking.oap.server.configuration.api.ConfigurationModule;
 import org.apache.skywalking.oap.server.configuration.api.DynamicConfigurationService;
 import org.apache.skywalking.oap.server.core.CoreModule;
@@ -35,6 +36,7 @@ import org.apache.skywalking.oap.server.library.util.ResourceUtils;
 public class AlarmModuleProvider extends ModuleProvider {
 
     private NotifyHandler notifyHandler;
+    @Getter
     private AlarmRulesWatcher alarmRulesWatcher;
 
     @Override
@@ -54,7 +56,7 @@ public class AlarmModuleProvider extends ModuleProvider {
 
     @Override
     public void prepare() throws ServiceNotProvidedException, ModuleStartException {
-        alarmRulesWatcher = new AlarmRulesWatcher(new Rules(), this);
+        alarmRulesWatcher = new AlarmRulesWatcher(new Rules(), this, getManager());
         notifyHandler = new NotifyHandler(alarmRulesWatcher, getManager());
         this.registerServiceImplementation(MetricsNotify.class, notifyHandler);
     }
@@ -76,7 +78,7 @@ public class AlarmModuleProvider extends ModuleProvider {
         } catch (FileNotFoundException e) {
             throw new ModuleStartException("can't load alarm-settings.yml", e);
         }
-        RulesReader reader = new RulesReader(applicationReader);
+        RulesReader reader = new RulesReader(applicationReader, getManager());
         Rules rules = reader.readRules();
         alarmRulesWatcher.initConfig(rules);
         notifyHandler.init(new AlarmStandardPersistence(getManager()));

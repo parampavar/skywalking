@@ -71,6 +71,14 @@ public class StatusQueryProvider extends ModuleProvider {
             new TTLConfigQueryHandler(getManager()),
             Collections.singletonList(HttpMethod.GET)
         );
+        service.addHandler(
+            new ClusterStatusQueryHandler(getManager()),
+            Collections.singletonList(HttpMethod.GET)
+        );
+        service.addHandler(
+            new AlarmStatusQueryHandler(getManager()),
+            Collections.singletonList(HttpMethod.GET)
+        );
     }
 
     public void notifyAfterCompleted() throws ServiceNotProvidedException, ModuleStartException {

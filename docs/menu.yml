@@ -276,6 +276,8 @@ catalog:
                 path: "/en/setup/ai-pipeline/introduction"
               - name: "HTTP Restful URI recognition"
                 path: "/en/setup/ai-pipeline/http-restful-uri-pattern"
+              - name: "Metrics Baseline Calculation and Alerting"
+                path: "/en/setup/ai-pipeline/metrics-baseline-integration"
       - name: "UI Setup"
         catalog:
           - name: "Native UI"
@@ -306,9 +308,9 @@ catalog:
             catalog:
               - name: "Meter APIs"
                 path: "/en/api/meter"
-              - name: "Browser performance APIs"
+              - name: "Browser Performance APIs"
                 path: "/en/api/browser-protocol"
-              - name: "JVM metrics APIs"
+              - name: "JVM Metrics APIs"
                 path: "/en/api/jvm-protocol"
           - name: "Logging"
             path: "/en/api/log-data-protocol"
@@ -344,6 +346,10 @@ catalog:
                 path: "/en/debugging/query-tracing"
               - name: "Get Effective TTL Configurations"
                 path: "/en/status/query_ttl_setup"
+              - name: "Get Node List in the Cluster"
+                path: "/en/status/query_cluster_nodes"
+              - name: "Get Alarm Runtime Status"
+                path: "/en/status/query_alarm_runtime_status"
   - name: "Customization"
     catalog:
       - name: "Overview"
