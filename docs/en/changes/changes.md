@@ -29,6 +29,8 @@
 * [Break Change]Storage: Move `event` from metrics to records.
 * Remove string limitation in Jackson deserializer for ElasticSearch client.
 * Fix `disable.oal` does not work.
+* Enhance the stability of e2e PHP tests and update the PHP agent version.
+* Add component ID for the `dameng` JDBC driver.
 
 #### UI
 
@@ -45,6 +47,7 @@
 
 * BanyanDB: Add `Data Lifecycle Stages(Hot/Warm/Cold)` documentation.
 * Add `SWIP-9 Support flink monitoring`.
+* Fix `Metrics Attributes` menu link.
 
 All issues and pull requests are [here](https://github.com/apache/skywalking/milestone/230?closed=1)
 
