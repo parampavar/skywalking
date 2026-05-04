@@ -24,8 +24,11 @@ import java.util.Map;
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
+import org.antlr.v4.runtime.tree.ParseTree;
+import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.skywalking.lal.rt.grammar.LALLexer;
 import org.apache.skywalking.lal.rt.grammar.LALParser;
 import org.apache.skywalking.oap.log.analyzer.v2.compiler.LALScriptModel.AbortStatement;
@@ -155,30 +158,34 @@ public final class LALScriptParser {
                 }
                 for (final LALParser.AbortOnFailureStatementContext abfCtx :
                         ctx.textBlock().textContent().abortOnFailureStatement()) {
-                    abortOnFail = "true".equals(abfCtx.boolValue().getText());
+                    abortOnFail = parseBoolText(abfCtx.boolValue().getText());
                 }
             }
             return new TextParser(pattern, abortOnFail);
         }
         if (ctx.jsonBlock() != null) {
-            boolean abortOnFail = false;
-            if (ctx.jsonBlock().jsonContent() != null
-                    && ctx.jsonBlock().jsonContent().abortOnFailureStatement() != null) {
-                abortOnFail = "true".equals(
-                    ctx.jsonBlock().jsonContent().abortOnFailureStatement()
-                        .boolValue().getText());
-            }
-            return new JsonParser(abortOnFail);
+            return new JsonParser(extractAbortOnFail(
+                ctx.jsonBlock().jsonContent() != null
+                    ? ctx.jsonBlock().jsonContent().abortOnFailureStatement() : null));
         }
-        // yaml
-        boolean abortOnFail = false;
-        if (ctx.yamlBlock().yamlContent() != null
-                && ctx.yamlBlock().yamlContent().abortOnFailureStatement() != null) {
-            abortOnFail = "true".equals(
-                ctx.yamlBlock().yamlContent().abortOnFailureStatement()
-                    .boolValue().getText());
-        }
-        return new YamlParser(abortOnFail);
+        return new YamlParser(extractAbortOnFail(
+            ctx.yamlBlock().yamlContent() != null
+                ? ctx.yamlBlock().yamlContent().abortOnFailureStatement() : null));
+    }
+
+    /**
+     * Extract the {@code abortOnFailure} flag from an optional
+     * {@code abortOnFailureStatement} node, defaulting to {@code false}
+     * when the statement is absent. Shared between the JSON and YAML
+     * parser blocks (text uses a list form, handled inline).
+     */
+    private static boolean extractAbortOnFail(
+            final LALParser.AbortOnFailureStatementContext ctx) {
+        return ctx != null && parseBoolText(ctx.boolValue().getText());
+    }
+
+    private static boolean parseBoolText(final String text) {
+        return "true".equals(text);
     }
 
     // ==================== Extractor block ====================
@@ -219,8 +226,7 @@ public final class LALScriptParser {
         }
         if (ctx.timestampStatement() != null) {
             final ValueAccess va = visitValueAccess(ctx.timestampStatement().valueAccess());
-            final String cast = ctx.timestampStatement().typeCast() != null
-                ? extractCastType(ctx.timestampStatement().typeCast()) : null;
+            final String cast = extractCastType(ctx.timestampStatement().typeCast());
             String format = null;
             if (ctx.timestampStatement().STRING() != null) {
                 format = stripQuotes(ctx.timestampStatement().STRING().getText());
@@ -245,7 +251,7 @@ public final class LALScriptParser {
             final LALParser.ValueAccessContext vaCtx,
             final LALParser.TypeCastContext tcCtx) {
         final ValueAccess va = visitValueAccess(vaCtx);
-        final String cast = tcCtx != null ? extractCastType(tcCtx) : null;
+        final String cast = extractCastType(tcCtx);
         return new FieldAssignment(type, va, cast, null);
     }
 
@@ -253,7 +259,7 @@ public final class LALScriptParser {
             final LALParser.OutputFieldStatementContext ctx) {
         final String fieldName = ctx.anyIdentifier().getText();
         final ValueAccess value = visitValueAccess(ctx.valueAccess());
-        final String castType = ctx.typeCast() != null ? extractCastType(ctx.typeCast()) : null;
+        final String castType = extractCastType(ctx.typeCast());
         return new LALScriptModel.OutputFieldAssignment(fieldName, value, castType);
     }
 
@@ -263,8 +269,7 @@ public final class LALScriptParser {
             final LALParser.DefStatementContext ctx) {
         final String varName = ctx.IDENTIFIER().getText();
         final ValueAccess initializer = visitValueAccess(ctx.valueAccess());
-        final String castType = ctx.typeCast() != null
-            ? extractCastType(ctx.typeCast()) : null;
+        final String castType = extractCastType(ctx.typeCast());
         return new DefStatement(varName, initializer, castType);
     }
 
@@ -276,14 +281,13 @@ public final class LALScriptParser {
             for (int i = 0; i < ctx.tagMap().anyIdentifier().size(); i++) {
                 final String key = ctx.tagMap().anyIdentifier(i).getText();
                 final ValueAccess va = visitValueAccess(ctx.tagMap().valueAccess(i));
-                final String cast = ctx.tagMap().typeCast(i) != null
-                    ? extractCastType(ctx.tagMap().typeCast(i)) : null;
+                final String cast = extractCastType(ctx.tagMap().typeCast(i));
                 tags.put(key, new TagValue(va, cast));
             }
         } else if (ctx.STRING() != null) {
             final String key = stripQuotes(ctx.STRING().getText());
             final ValueAccess va = visitValueAccess(ctx.valueAccess());
-            final String cast = ctx.typeCast() != null ? extractCastType(ctx.typeCast()) : null;
+            final String cast = extractCastType(ctx.typeCast());
             tags.put(key, new TagValue(va, cast));
         }
         return new TagAssignment(tags);
@@ -305,23 +309,20 @@ public final class LALScriptParser {
             }
             if (msc.metricsTimestampStatement() != null) {
                 timestampValue = visitValueAccess(msc.metricsTimestampStatement().valueAccess());
-                timestampCast = msc.metricsTimestampStatement().typeCast() != null
-                    ? extractCastType(msc.metricsTimestampStatement().typeCast()) : null;
+                timestampCast = extractCastType(msc.metricsTimestampStatement().typeCast());
             }
             if (msc.metricsLabelsStatement() != null) {
                 for (final LALParser.LabelEntryContext lec :
                         msc.metricsLabelsStatement().labelMap().labelEntry()) {
                     final String key = lec.anyIdentifier().getText();
                     final ValueAccess va = visitValueAccess(lec.valueAccess());
-                    final String cast = lec.typeCast() != null
-                        ? extractCastType(lec.typeCast()) : null;
+                    final String cast = extractCastType(lec.typeCast());
                     labels.put(key, new TagValue(va, cast));
                 }
             }
             if (msc.metricsValueStatement() != null) {
                 value = visitValueAccess(msc.metricsValueStatement().valueAccess());
-                valueCast = msc.metricsValueStatement().typeCast() != null
-                    ? extractCastType(msc.metricsValueStatement().typeCast()) : null;
+                valueCast = extractCastType(msc.metricsValueStatement().typeCast());
             }
         }
 
@@ -349,15 +350,20 @@ public final class LALScriptParser {
     private static SamplerBlock visitSamplerBlock(final LALParser.SamplerBlockContext ctx) {
         final List<SamplerContent> contents = new ArrayList<>();
         for (final LALParser.RateLimitBlockContext rlc : ctx.samplerContent().rateLimitBlock()) {
-            final String id = stripQuotes(rlc.rateLimitId().getText());
-            final long rpm = Long.parseLong(rlc.rateLimitContent().NUMBER().getText());
-            final List<InterpolationPart> idParts = parseInterpolation(id);
-            contents.add(new RateLimitBlock(id, idParts, rpm));
+            contents.add(visitRateLimitBlock(rlc));
         }
         for (final LALParser.IfStatementContext isc : ctx.samplerContent().ifStatement()) {
             contents.add((SamplerContent) visitIfStatement(isc));
         }
         return new SamplerBlock(contents);
+    }
+
+    private static RateLimitBlock visitRateLimitBlock(
+            final LALParser.RateLimitBlockContext rlc) {
+        final String id = stripQuotes(rlc.rateLimitId().getText());
+        final long rpm = parseStrictInteger(
+            rlc.rateLimitContent().NUMBER().getText(), "rpm");
+        return new RateLimitBlock(id, parseInterpolation(id), rpm);
     }
 
     // ==================== If statement ====================
@@ -426,11 +432,7 @@ public final class LALScriptParser {
         if (sc != null) {
             final List<SamplerContent> samplerItems = new ArrayList<>();
             for (final LALParser.RateLimitBlockContext rlc : sc.rateLimitBlock()) {
-                final String id = stripQuotes(rlc.rateLimitId().getText());
-                final long rpm = Long.parseLong(
-                    rlc.rateLimitContent().NUMBER().getText());
-                final List<InterpolationPart> idParts = parseInterpolation(id);
-                samplerItems.add(new RateLimitBlock(id, idParts, rpm));
+                samplerItems.add(visitRateLimitBlock(rlc));
             }
             for (final LALParser.IfStatementContext isc : sc.ifStatement()) {
                 samplerItems.add((SamplerContent) visitIfStatement(isc));
@@ -465,34 +467,34 @@ public final class LALScriptParser {
         }
         if (ctx instanceof LALParser.CondEqContext) {
             final LALParser.CondEqContext eq = (LALParser.CondEqContext) ctx;
-            return makeComparison(eq.conditionExpr(0), CompareOp.EQ, eq.conditionExpr(1));
+            return visitComparison(eq.conditionExpr(0), CompareOp.EQ, eq.conditionExpr(1));
         }
         if (ctx instanceof LALParser.CondNeqContext) {
             final LALParser.CondNeqContext neq = (LALParser.CondNeqContext) ctx;
-            return makeComparison(neq.conditionExpr(0), CompareOp.NEQ, neq.conditionExpr(1));
+            return visitComparison(neq.conditionExpr(0), CompareOp.NEQ, neq.conditionExpr(1));
         }
         if (ctx instanceof LALParser.CondGtContext) {
             final LALParser.CondGtContext gt = (LALParser.CondGtContext) ctx;
-            return makeComparison(gt.conditionExpr(0), CompareOp.GT, gt.conditionExpr(1));
+            return visitComparison(gt.conditionExpr(0), CompareOp.GT, gt.conditionExpr(1));
         }
         if (ctx instanceof LALParser.CondLtContext) {
             final LALParser.CondLtContext lt = (LALParser.CondLtContext) ctx;
-            return makeComparison(lt.conditionExpr(0), CompareOp.LT, lt.conditionExpr(1));
+            return visitComparison(lt.conditionExpr(0), CompareOp.LT, lt.conditionExpr(1));
         }
         if (ctx instanceof LALParser.CondGteContext) {
             final LALParser.CondGteContext gte = (LALParser.CondGteContext) ctx;
-            return makeComparison(gte.conditionExpr(0), CompareOp.GTE, gte.conditionExpr(1));
+            return visitComparison(gte.conditionExpr(0), CompareOp.GTE, gte.conditionExpr(1));
         }
         if (ctx instanceof LALParser.CondLteContext) {
             final LALParser.CondLteContext lte = (LALParser.CondLteContext) ctx;
-            return makeComparison(lte.conditionExpr(0), CompareOp.LTE, lte.conditionExpr(1));
+            return visitComparison(lte.conditionExpr(0), CompareOp.LTE, lte.conditionExpr(1));
         }
         // condSingle
         final LALParser.CondSingleContext single = (LALParser.CondSingleContext) ctx;
         return visitConditionExprAsCondition(single.conditionExpr());
     }
 
-    private static Condition makeComparison(
+    private static Condition visitComparison(
             final LALParser.ConditionExprContext leftCtx,
             final CompareOp op,
             final LALParser.ConditionExprContext rightCtx) {
@@ -500,8 +502,7 @@ public final class LALScriptParser {
             final LALParser.CondValueAccessContext lva =
                 (LALParser.CondValueAccessContext) leftCtx;
             final ValueAccess left = visitValueAccess(lva.valueAccess());
-            final String leftCast = lva.typeCast() != null
-                ? extractCastType(lva.typeCast()) : null;
+            final String leftCast = extractCastType(lva.typeCast());
             return new ComparisonCondition(left, leftCast, op,
                 visitConditionExprAsValue(rightCtx));
         }
@@ -528,8 +529,9 @@ public final class LALScriptParser {
                 stripQuotes(((LALParser.CondStringContext) ctx).STRING().getText()));
         }
         if (ctx instanceof LALParser.CondNumberContext) {
-            return new NumberConditionValue(
-                Double.parseDouble(((LALParser.CondNumberContext) ctx).NUMBER().getText()));
+            final String numText =
+                ((LALParser.CondNumberContext) ctx).NUMBER().getText();
+            return new NumberConditionValue(parseLiteralAsDouble(numText), numText);
         }
         if (ctx instanceof LALParser.CondNullContext) {
             return new NullConditionValue();
@@ -541,19 +543,21 @@ public final class LALScriptParser {
             // (since valueAccessPrimary includes them and condValueAccess has priority).
             // Detect standalone literals and create proper ConditionValue types.
             final LALParser.ValueAccessContext vaCtx = va.valueAccess();
-            if (va.typeCast() == null && vaCtx.valueAccessTerm().size() == 1
-                    && vaCtx.valueAccessTerm(0).valueAccessSegment().isEmpty()) {
+            final LALParser.ValueAccessTermContext singleTerm = singleTermOf(vaCtx);
+            if (va.typeCast() == null && singleTerm != null
+                    && singleTerm.valueAccessSegment().isEmpty()) {
                 final LALParser.ValueAccessPrimaryContext primary =
-                    vaCtx.valueAccessTerm(0).valueAccessPrimary();
+                    singleTerm.valueAccessPrimary();
                 if (primary instanceof LALParser.ValueNumberContext) {
-                    return new NumberConditionValue(Double.parseDouble(
-                        ((LALParser.ValueNumberContext) primary).NUMBER().getText()));
+                    final String numText =
+                        ((LALParser.ValueNumberContext) primary).NUMBER().getText();
+                    return new NumberConditionValue(parseLiteralAsDouble(numText), numText);
                 }
                 if (primary instanceof LALParser.ValueNullContext) {
                     return new NullConditionValue();
                 }
             }
-            final String cast = va.typeCast() != null ? extractCastType(va.typeCast()) : null;
+            final String cast = extractCastType(va.typeCast());
             return new ValueAccessConditionValue(visitValueAccess(vaCtx), cast);
         }
         if (ctx instanceof LALParser.CondParenGroupContext) {
@@ -571,7 +575,7 @@ public final class LALScriptParser {
         if (ctx instanceof LALParser.CondValueAccessContext) {
             final LALParser.CondValueAccessContext va =
                 (LALParser.CondValueAccessContext) ctx;
-            final String cast = va.typeCast() != null ? extractCastType(va.typeCast()) : null;
+            final String cast = extractCastType(va.typeCast());
             return new ExprCondition(visitValueAccess(va.valueAccess()), cast);
         }
         if (ctx instanceof LALParser.CondFunctionCallContext) {
@@ -595,19 +599,75 @@ public final class LALScriptParser {
     // ==================== Value access ====================
 
     private static ValueAccess visitValueAccess(final LALParser.ValueAccessContext ctx) {
+        return visitValueAccessAdd(ctx.valueAccessAdd());
+    }
+
+    private static ValueAccess visitValueAccessAdd(final LALParser.ValueAccessAddContext ctx) {
+        final List<LALParser.ValueAccessMulContext> muls = ctx.valueAccessMul();
+        if (muls.size() == 1) {
+            return visitValueAccessMul(muls.get(0));
+        }
+        final List<ValueAccess> parts = new ArrayList<>(muls.size());
+        for (final LALParser.ValueAccessMulContext mul : muls) {
+            parts.add(visitValueAccessMul(mul));
+        }
+        return binaryExpr(parts, collectInfixOps(ctx,
+            LALLexer.PLUS, LALScriptModel.BinaryOp.PLUS,
+            LALLexer.MINUS, LALScriptModel.BinaryOp.MINUS));
+    }
+
+    private static ValueAccess visitValueAccessMul(final LALParser.ValueAccessMulContext ctx) {
         final List<LALParser.ValueAccessTermContext> terms = ctx.valueAccessTerm();
         if (terms.size() == 1) {
             return visitValueAccessTerm(terms.get(0));
         }
-        // Multiple terms joined by PLUS — string concatenation
-        final List<ValueAccess> parts = new ArrayList<>();
+        final List<ValueAccess> parts = new ArrayList<>(terms.size());
         for (final LALParser.ValueAccessTermContext term : terms) {
             parts.add(visitValueAccessTerm(term));
         }
+        return binaryExpr(parts, collectInfixOps(ctx,
+            LALLexer.STAR, LALScriptModel.BinaryOp.STAR,
+            LALLexer.SLASH, LALScriptModel.BinaryOp.SLASH));
+    }
+
+    /**
+     * Walk a parser context's terminal children to recover the infix
+     * operator sequence (one operator per gap between operands). Used by
+     * the additive and multiplicative visitors to rebuild operator order
+     * from ANTLR's flattened child list.
+     */
+    private static List<LALScriptModel.BinaryOp> collectInfixOps(
+            final ParserRuleContext ctx,
+            final int firstToken, final LALScriptModel.BinaryOp firstOp,
+            final int secondToken, final LALScriptModel.BinaryOp secondOp) {
+        final List<LALScriptModel.BinaryOp> ops = new ArrayList<>();
+        for (int i = 0; i < ctx.getChildCount(); i++) {
+            final ParseTree child = ctx.getChild(i);
+            if (!(child instanceof TerminalNode)) {
+                continue;
+            }
+            final int type = ((TerminalNode) child).getSymbol().getType();
+            if (type == firstToken) {
+                ops.add(firstOp);
+            } else if (type == secondToken) {
+                ops.add(secondOp);
+            }
+        }
+        return ops;
+    }
+
+    /**
+     * Wrap a list of operands and operators as a {@link ValueAccess}
+     * representing a binary expression node — used by the additive and
+     * multiplicative visitors so neither has to know the AST construction
+     * details.
+     */
+    private static ValueAccess binaryExpr(final List<ValueAccess> parts,
+                                            final List<LALScriptModel.BinaryOp> ops) {
         return new ValueAccess(
-            List.of("concat"), false, false, false, false, false,
+            List.of("expr"), false, false, false, false, false,
             List.of(), null, null,
-            parts, null, null);
+            parts, ops, null, null);
     }
 
     private static ValueAccess visitValueAccessTerm(
@@ -652,8 +712,7 @@ public final class LALScriptParser {
             final LALParser.ValueParenContext parenCtx =
                 (LALParser.ValueParenContext) primary;
             parenInner = visitValueAccess(parenCtx.valueAccess());
-            parenCast = parenCtx.typeCast() != null
-                ? extractCastType(parenCtx.typeCast()) : null;
+            parenCast = extractCastType(parenCtx.typeCast());
             segments.add("paren");
         } else {
             segments.add(primary.getText());
@@ -684,8 +743,8 @@ public final class LALScriptParser {
                 chain.add(new LALScriptModel.MethodSegment(
                     fi.functionName().getText(), visitFunctionArgs(fi), true));
             } else if (seg instanceof LALParser.SegmentIndexContext) {
-                final int index = Integer.parseInt(
-                    ((LALParser.SegmentIndexContext) seg).NUMBER().getText());
+                final int index = parseStrictInt(
+                    ((LALParser.SegmentIndexContext) seg).NUMBER().getText(), "[index]");
                 segments.add("[" + index + "]");
                 chain.add(new IndexSegment(index));
             }
@@ -706,47 +765,142 @@ public final class LALScriptParser {
         for (final LALParser.FunctionArgContext fac : fi.functionArgList().functionArg()) {
             if (fac.valueAccess() != null) {
                 final ValueAccess va = visitValueAccess(fac.valueAccess());
-                final String cast = fac.typeCast() != null
-                    ? extractCastType(fac.typeCast()) : null;
+                final String cast = extractCastType(fac.typeCast());
                 args.add(new LALScriptModel.FunctionArg(va, cast));
             } else if (fac.STRING() != null) {
-                final String val = stripQuotes(fac.STRING().getText());
-                final ValueAccess va = new ValueAccess(
-                    List.of(val), false, false, false, true, false,
-                    List.of(), null, null);
-                args.add(new LALScriptModel.FunctionArg(va, null));
+                args.add(new LALScriptModel.FunctionArg(
+                    literalArg(stripQuotes(fac.STRING().getText()), true, false), null));
             } else if (fac.NUMBER() != null) {
-                final ValueAccess va = new ValueAccess(
-                    List.of(fac.NUMBER().getText()), false, false,
-                    false, false, true, List.of(), null, null);
-                args.add(new LALScriptModel.FunctionArg(va, null));
+                args.add(new LALScriptModel.FunctionArg(
+                    literalArg(fac.NUMBER().getText(), false, true), null));
             } else if (fac.boolValue() != null) {
-                final ValueAccess va = new ValueAccess(
-                    List.of(fac.boolValue().getText()), false, false,
-                    false, false, false, List.of(), null, null);
-                args.add(new LALScriptModel.FunctionArg(va, null));
+                args.add(new LALScriptModel.FunctionArg(
+                    literalArg(fac.boolValue().getText(), false, false), null));
             } else {
                 // NULL
-                final ValueAccess va = new ValueAccess(
-                    List.of("null"), false, false, List.of());
-                args.add(new LALScriptModel.FunctionArg(va, null));
+                args.add(new LALScriptModel.FunctionArg(
+                    new ValueAccess(List.of("null"), false, false, List.of()), null));
             }
         }
         return args;
     }
 
+    /**
+     * Build a single-segment, no-chain {@link ValueAccess} for a literal
+     * function-argument value (string / number / boolean). Centralises the
+     * boolean-flag layout that would otherwise be repeated at each call site.
+     */
+    private static ValueAccess literalArg(final String text,
+                                            final boolean stringLiteral,
+                                            final boolean numberLiteral) {
+        return new ValueAccess(
+            List.of(text), false, false, false, stringLiteral, numberLiteral,
+            List.of(), null, null);
+    }
+
     private static String resolveValueAsString(final LALParser.ValueAccessContext ctx) {
-        final LALParser.ValueAccessPrimaryContext primary =
-            ctx.valueAccessTerm(0).valueAccessPrimary();
+        final LALParser.ValueAccessTermContext term = singleTermOf(ctx);
+        if (term == null) {
+            return ctx.getText();
+        }
+        final LALParser.ValueAccessPrimaryContext primary = term.valueAccessPrimary();
         if (primary instanceof LALParser.ValueStringContext) {
             return stripQuotes(((LALParser.ValueStringContext) primary).STRING().getText());
         }
         return primary.getText();
     }
 
+    /**
+     * Returns the single {@link LALParser.ValueAccessTermContext} of a
+     * {@code valueAccess} when it has no arithmetic operators, otherwise null.
+     */
+    private static LALParser.ValueAccessTermContext singleTermOf(
+            final LALParser.ValueAccessContext ctx) {
+        final LALParser.ValueAccessAddContext add = ctx.valueAccessAdd();
+        if (add.valueAccessMul().size() != 1) {
+            return null;
+        }
+        final LALParser.ValueAccessMulContext mul = add.valueAccessMul(0);
+        if (mul.valueAccessTerm().size() != 1) {
+            return null;
+        }
+        return mul.valueAccessTerm(0);
+    }
+
+    /**
+     * Parse a NUMBER literal that must represent a plain integer (no
+     * decimal, no exponent, no Java-style suffix). Used by integer-only
+     * grammar slots — {@code rateLimit { rpm N }} and {@code list[N]} —
+     * which share the lexer NUMBER token with arithmetic expressions but
+     * cannot accept the suffixes/forms supported there. Throws a clear
+     * compile-time error for shape violations and for values that exceed
+     * Java's {@code long} range (rather than letting
+     * {@link NumberFormatException} leak from {@code Long.parseLong}).
+     */
+    private static long parseStrictInteger(final String numText, final String slot) {
+        for (int i = 0; i < numText.length(); i++) {
+            final char c = numText.charAt(i);
+            if (c < '0' || c > '9') {
+                throw new IllegalArgumentException(
+                    slot + " expects a plain integer literal, got '" + numText
+                        + "' (suffixes / decimals / exponents are not accepted here)");
+            }
+        }
+        try {
+            return Long.parseLong(numText);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                slot + " value '" + numText + "' exceeds the supported range "
+                    + "(must fit in a Java long)");
+        }
+    }
+
+    /**
+     * Like {@link #parseStrictInteger} but additionally requires the value
+     * to fit in a Java {@code int}. Used by the {@code [index]} grammar
+     * slot, where silent narrowing of an oversized literal would wrap to a
+     * negative index instead of producing a clear error.
+     */
+    private static int parseStrictInt(final String numText, final String slot) {
+        final long value = parseStrictInteger(numText, slot);
+        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                slot + " value '" + numText + "' exceeds the supported range "
+                    + "(must fit in a Java int)");
+        }
+        return (int) value;
+    }
+
+    /**
+     * Parse a NUMBER literal text (which may carry an L/F/D suffix) as a Java double
+     * for use in {@link NumberConditionValue}. Suffix is stripped before parsing.
+     */
+    private static double parseLiteralAsDouble(final String numText) {
+        String t = numText;
+        if (!t.isEmpty()) {
+            final char last = t.charAt(t.length() - 1);
+            if (last == 'L' || last == 'l' || last == 'F' || last == 'f'
+                    || last == 'D' || last == 'd') {
+                t = t.substring(0, t.length() - 1);
+            }
+        }
+        return Double.parseDouble(t);
+    }
+
     // ==================== Utilities ====================
 
+    /**
+     * Resolve a {@code typeCast} context to its cast-name string
+     * ({@code "Integer"}, {@code "String"}, FQCN, …). Accepts a {@code null}
+     * context and returns {@code null} so call sites can pass the context
+     * directly without a guard — replaces the ubiquitous
+     * {@code extractCastType(ctx.typeCast())}
+     * idiom.
+     */
     private static String extractCastType(final LALParser.TypeCastContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
         if (ctx.STRING_TYPE() != null) {
             return "String";
         }
@@ -755,6 +909,12 @@ public final class LALScriptParser {
         }
         if (ctx.INTEGER_TYPE() != null) {
             return "Integer";
+        }
+        if (ctx.DOUBLE_TYPE() != null) {
+            return "Double";
+        }
+        if (ctx.FLOAT_TYPE() != null) {
+            return "Float";
         }
         if (ctx.BOOLEAN_TYPE() != null) {
             return "Boolean";
